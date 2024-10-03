@@ -1,0 +1,47 @@
+name: Deploy to Stage Environment
+
+on:
+  push:
+    branches: [ "dev" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: deploy_test
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Deploy to Stage environment
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          username: ${{ secrets.STAGE_SSH_USERNAME }}
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/Indeed-Admin--0-CRM/
+            eval $(ssh-agent -s)
+            ssh-add ~/.ssh/github-crm
+            git stash
+            git pull origin dev
+            npm run build
+            docker-compose up --build -d
+            eval $(ssh-agent -k)  # Clean up SSH agent
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: HMC Dispatch Deployment to Staging Environment failed! :warning:",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":octocat:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
